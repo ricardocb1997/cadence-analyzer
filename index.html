@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Analizador de Cadencia</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <!-- Papa Parse -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="container">
+    <h1>Analizador de Cadencia</h1>
+    <p class="muted">Sube tu CSV (TrainingPeaks/fit exportado a CSV con columnas <code>timestamp</code>, <code>cadence</code>, <code>altitude</code> en metros). Calcula la desviación estándar en ventanas deslizantes y genera gráficos y un CSV con resultados.</p>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <h2>1) Carga de datos</h2>
+      <div class="row">
+        <input type="file" id="fileInput" accept=".csv" />
+      </div>
+      <div class="grid">
+        <label>
+          Tamaño de ventana (s)
+          <input type="number" id="winSize" value="5" min="2" step="1" />
+        </label>
+        <label>
+          Máx. cadencia aceptada
+          <input type="number" id="maxCad" value="120" min="60" max="300" step="1" />
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" id="removeZeros" checked /> Eliminar cadencia = 0
+        </label>
+        <label>
+          Separador decimal del CSV
+          <select id="decimalSelect">
+            <option value=".">Punto (.)</option>
+            <option value=",">Coma (,)</option>
+          </select>
+        </label>
+      </div>
+      <div class="row gap">
+        <button id="analyzeBtn">Ejecutar análisis</button>
+        <button id="downloadBtn" disabled>Descargar resultados CSV</button>
+      </div>
+      <pre id="log" class="log"></pre>
+    </section>
+
+    <section class="card">
+      <h2>2) Resumen</h2>
+      <div id="summary" class="summary"></div>
+    </section>
+
+    <section class="card">
+      <h2>3) Histogramas (antes vs. después de limpieza)</h2>
+      <canvas id="histChart" height="160"></canvas>
+    </section>
+
+    <section class="card">
+      <h2>4) Desviación estándar (5 s), Altitud y Cadencia</h2>
+      <canvas id="comboChart" height="180"></canvas>
+    </section>
+  </main>
+
+  <footer class="container muted small">
+    Hecho con ❤ para analizar sesiones de trail/road. Funciona 100% en el navegador (GitHub Pages).
+  </footer>
+</body>
+</html>
