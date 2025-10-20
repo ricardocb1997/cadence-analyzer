@@ -24,4 +24,5 @@ pre.log{background:#0b0e13;border-radius:12px;padding:12px;overflow:auto;max-hei
 .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
 .summary .tile{background:#0d1016;border:1px solid #2a3140;border-radius:12px;padding:12px}
 .summary .tile b{display:block;font-size:1.1rem}
-canvas{width:100%}
+/* Ensure canvases keep stable height regardless of data range */ 
+canvas{width:100%; height:240px !important; display:block}

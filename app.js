@@ -104,6 +104,37 @@
     setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 0);
   }
 
+  // ------- Helpers for robust axis ranges -------
+  function finiteArray(arr){ return arr.filter(v=>Number.isFinite(v)); }
+  function percentile(sorted, p){
+    if(!sorted.length) return NaN;
+    const idx = (p/100) * (sorted.length-1);
+    const lo = Math.floor(idx), hi = Math.ceil(idx);
+    if(lo === hi) return sorted[lo];
+    const w = idx - lo;
+    return sorted[lo]*(1-w) + sorted[hi]*w;
+  }
+  function robustLimits(arr, {nonNegative=false, padFrac=0.2, fallback=[0,1]}={}){
+    const vals = finiteArray(arr).slice().sort((a,b)=>a-b);
+    if(!vals.length) return {min:fallback[0], max:fallback[1]};
+    let q1 = percentile(vals, 1);
+    let q99 = percentile(vals, 99);
+    if(!Number.isFinite(q1) || !Number.isFinite(q99) || q1===q99){
+      const m = vals.reduce((a,b)=>a+b,0)/vals.length;
+      const range = Math.max(Math.abs(m)*0.5, 1);
+      let lo = m - range, hi = m + range;
+      if(nonNegative) lo = Math.max(0, lo);
+      return {min:lo, max:hi};
+    }
+    let range = q99 - q1;
+    if(range === 0) range = Math.max(Math.abs(q99)*0.5, 1);
+    let lo = q1 - range*padFrac;
+    let hi = q99 + range*padFrac;
+    if(nonNegative) lo = Math.max(0, lo);
+    if(hi <= lo) hi = lo + 1;
+    return {min:lo, max:hi};
+  }
+
   function renderSummary(stats){
     const { duration_s, n_windows, avg_std, pct_removed, removed_zero, removed_high } = stats;
     summaryEl.innerHTML = `
@@ -155,25 +186,31 @@
 
   function renderCombo(t, std, alt, cad){
     if(charts.combo){ charts.combo.destroy(); charts.combo=null; }
+    // Robust bounds for each axis
+    const limStd = robustLimits(std, {nonNegative:true, padFrac:0.25, fallback:[0,1]});
+    const limAlt = robustLimits(alt, {nonNegative:false, padFrac:0.15, fallback:[0,10]});
+    const limCad = robustLimits(cad, {nonNegative:true, padFrac:0.15, fallback:[0,120]});
+
     const ctx = document.getElementById('comboChart');
     charts.combo = new Chart(ctx, {
       type:'line',
       data:{
         labels: t,
         datasets:[
-          { label:'Desv. estándar (ventana)', data: std, yAxisID:'yStd', borderWidth:1 },
-          { label:'Altitud (m)', data: alt, yAxisID:'yAlt', borderWidth:1 },
-          { label:'Cadencia', data: cad, yAxisID:'yCad', borderDash:[6,4], borderWidth:1 }
+          { label:'Desv. estándar (ventana)', data: std, yAxisID:'yStd', borderWidth:1, spanGaps:true },
+          { label:'Altitud (m)', data: alt, yAxisID:'yAlt', borderWidth:1, spanGaps:true },
+          { label:'Cadencia', data: cad, yAxisID:'yCad', borderDash:[6,4], borderWidth:1, spanGaps:true }
         ]
       },
       options:{
         responsive:true,
         maintainAspectRatio:false,
+        animation:false,
         interaction:{ mode:'index', intersect:false },
         scales:{
-          yStd:{ position:'left', title:{ display:true, text:'Desviación estándar' } },
-          yAlt:{ position:'right', title:{ display:true, text:'Altitud (m)' }, grid:{ drawOnChartArea:false } },
-          yCad:{ position:'right', offset:true, title:{ display:true, text:'Cadencia' }, grid:{ drawOnChartArea:false } },
+          yStd:{ position:'left', min: limStd.min, max: limStd.max, title:{ display:true, text:'Desviación estándar' } },
+          yAlt:{ position:'right', min: limAlt.min, max: limAlt.max, title:{ display:true, text:'Altitud (m)' }, grid:{ drawOnChartArea:false } },
+          yCad:{ position:'right', offset:true, min: limCad.min, max: limCad.max, title:{ display:true, text:'Cadencia' }, grid:{ drawOnChartArea:false } },
           x:{ title:{ display:true, text:'Tiempo (s)' } }
         },
         plugins:{ legend:{ position:'top' }, tooltip:{ callbacks:{ label: (ctx)=> `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed?.(3) ?? ctx.parsed.y}` } } }
@@ -198,7 +235,6 @@
         try{
           const rows = res.data;
           log(`Filas totales (incluyendo cabecera): ${rows.length}`);
-          // Mapear y limpiar valores
           let mapped = [];
           for(const r of rows){
             const ts = r.timestamp ?? r.Time ?? r.date ?? r.datetime;
@@ -206,17 +242,15 @@
             const sec = toSec(ts);
             let cad = parseNumber(r.cadence ?? r.Cadence, decimal);
             let alt = parseNumber(r.altitude ?? r.Altitude, decimal);
-            if(Number.isNaN(cad)) continue; // necesitamos cadencia
+            if(Number.isNaN(cad)) continue;
             mapped.push({ sec, cadence: cad, altitude: alt });
           }
           if(!mapped.length){ log('No se encontraron columnas reconocibles (timestamp, cadence).'); return; }
-          // Orden por tiempo
           mapped.sort((a,b)=>a.sec-b.sec);
 
-          // Copia de cadencia original para histograma
           const cadRaw = mapped.map(r=>r.cadence).filter(v=>Number.isFinite(v));
 
-          // Limpieza: eliminar cad=0 y cad>maxCad
+          // Cleaning
           const n0 = mapped.length;
           let removed_zero=0, removed_high=0;
           mapped = mapped.filter(r=>{
@@ -228,7 +262,7 @@
           const pct_removed = n0? ((n0-n1)/n0*100) : 0;
           log(`Limpieza: eliminadas ${removed_zero} (cad=0), ${removed_high} (cad>${maxCad}).`);
 
-          // Re-muestreo a 1 Hz (interpolación lineal para huecos)
+          // Resample 1Hz
           const groupedBySec = new Map();
           for(const r of mapped){
             const k = r.sec;
@@ -249,12 +283,11 @@
 
           // Rolling STD
           const std = rollingStd(cad, win);
-          // Alinear salidas (comienzan en índice win-1)
           const tAligned = t.slice(win-1);
           const altAligned = alt.slice(win-1);
           const cadAligned = cad.slice(win-1);
 
-          // Resumen
+          // Summary
           const duration_s = (series.at(-1).sec - series[0].sec);
           const avg_std = std.length ? std.reduce((a,b)=>a+b,0)/std.length : NaN;
 
@@ -262,7 +295,6 @@
           renderHist(cadRaw, mapped.map(r=>r.cadence));
           renderCombo(tAligned, std, altAligned, cadAligned);
 
-          // Preparar resultados para descarga
           results = tAligned.map((time_s, i)=>({ time_s, std_5s: std[i], altitude: altAligned[i], cadence: cadAligned[i] }));
           downloadBtn.disabled = !results.length;
 
