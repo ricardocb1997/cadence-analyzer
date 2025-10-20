@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Analizador de Cadencia</title>
+  <title>Analizador de Tecnicidad del recorrido</title>
   <link rel="stylesheet" href="styles.css" />
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
@@ -13,8 +13,8 @@
 </head>
 <body>
   <header class="container">
-    <h1>Analizador de Cadencia</h1>
-    <p class="muted">Sube tu CSV (TrainingPeaks/fit exportado a CSV con columnas <code>timestamp</code>, <code>cadence</code>, <code>altitude</code> en metros). Calcula la desviación estándar en ventanas deslizantes y genera gráficos y un CSV con resultados.</p>
+    <h1>Analizador de Tecnicidad del recorrido</h1>
+    <p class="muted">Sube tu CSV (TrainingPeaks/fit exportado a CSV.</p>
   </header>
 
   <main class="container">
@@ -51,18 +51,22 @@
     </section>
 
     <section class="card">
-      <h2>2) Resumen</h2>
-      <div id="summary" class="summary"></div>
+      <h2>2) Índice de Tecnicidad</h2>
+      <div id="itPanel" class="it-panel">
+        <div class="it-value" id="itValue">—</div>
+        <div class="it-badge" id="itBadge">Sin datos</div>
+      </div>
+      <div id="summary" class="summary muted small"></div>
     </section>
 
     <section class="card">
-      <h2>3) Histogramas (antes vs. después de limpieza)</h2>
-      <canvas id="histChart" height="160"></canvas>
+      <h2>3) Altitud y Cadencia</h2>
+      <canvas id="altCadChart" height="200"></canvas>
     </section>
 
     <section class="card">
-      <h2>4) Desviación estándar (5 s), Altitud y Cadencia</h2>
-      <canvas id="comboChart" height="180"></canvas>
+      <h2>4) Índice de tecnicidad (tiempo)</h2>
+      <canvas id="techChart" height="200"></canvas>
     </section>
   </main>
 

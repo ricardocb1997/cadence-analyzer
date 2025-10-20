@@ -9,9 +9,11 @@
   const removeZerosEl = $('#removeZeros');
   const maxCadEl = $('#maxCad');
   const winSizeEl = $('#winSize');
+  const itValueEl = $('#itValue');
+  const itBadgeEl = $('#itBadge');
 
   let results = null;
-  let charts = { hist:null, combo:null };
+  let charts = { altCad:null, tech:null };
 
   function log(msg){
     logEl.textContent += `\n${msg}`;
@@ -19,8 +21,11 @@
   }
   function reset(){
     summaryEl.innerHTML='';
-    if(charts.hist){ charts.hist.destroy(); charts.hist=null; }
-    if(charts.combo){ charts.combo.destroy(); charts.combo=null; }
+    itValueEl.textContent = '—';
+    itBadgeEl.textContent = 'Sin datos';
+    itBadgeEl.className = 'it-badge';
+    if(charts.altCad){ charts.altCad.destroy(); charts.altCad=null; }
+    if(charts.tech){ charts.tech.destroy(); charts.tech=null; }
     results=null; downloadBtn.disabled=true; logEl.textContent='';
   }
 
@@ -73,7 +78,6 @@
   function rollingStd(arr, w){
     const out=[];
     if(w<=1 || arr.length < w) return out;
-    // Simple rolling std with fixed window
     let window = arr.slice(0, w);
     function std(values){
       const n = values.length;
@@ -91,8 +95,8 @@
   }
 
   function makeCSV(rows){
-    const header = 'time_s,std_5s,altitude,cadence\n';
-    return header + rows.map(r=>`${r.time_s},${r.std_5s},${r.altitude ?? ''},${r.cadence ?? ''}`).join('\n');
+    const header = 'time_s,indice_tecnicidad,altitude,cadence\n';
+    return header + rows.map(r=>`${r.time_s},${r.indice_tecnicidad},${r.altitude ?? ''},${r.cadence ?? ''}`).join('\n');
   }
 
   function download(filename, text){
@@ -104,7 +108,6 @@
     setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 0);
   }
 
-  // ------- Helpers for robust axis ranges -------
   function finiteArray(arr){ return arr.filter(v=>Number.isFinite(v)); }
   function percentile(sorted, p){
     if(!sorted.length) return NaN;
@@ -135,69 +138,35 @@
     return {min:lo, max:hi};
   }
 
+  function itCategory(value){
+    if(!Number.isFinite(value)) return {label:'Sin datos', className:''};
+    if(value <= 0.30) return {label:'Nada técnico', className:'green'};
+    if(value <= 0.60) return {label:'Poco técnico', className:'yellow'};
+    if(value <= 0.90) return {label:'Moderadamente técnico', className:'orange'};
+    return {label:'Muy técnico', className:'red'};
+  }
+
   function renderSummary(stats){
-    const { duration_s, n_windows, avg_std, pct_removed, removed_zero, removed_high } = stats;
+    const { duration_s, n_windows, pct_removed, removed_zero, removed_high, win, maxCad } = stats;
     summaryEl.innerHTML = `
       <div class="tile"><b>Duración</b>${duration_s.toFixed(1)} s</div>
-      <div class="tile"><b>Ventanas (${stats.win}s)</b>${n_windows}</div>
-      <div class="tile"><b>Prom. STD</b>${isFinite(avg_std)?avg_std.toFixed(4):'N/D'}</div>
+      <div class="tile"><b>Ventanas (${win}s)</b>${n_windows}</div>
       <div class="tile"><b>% eliminado</b>${pct_removed.toFixed(2)}%</div>
       <div class="tile"><b>Elim. cad=0</b>${removed_zero}</div>
-      <div class="tile"><b>Elim. cad>${stats.maxCad}</b>${removed_high}</div>
+      <div class="tile"><b>Elim. cad>${maxCad}</b>${removed_high}</div>
     `;
   }
 
-  function renderHist(origCad, cleanCad){
-    if(charts.hist){ charts.hist.destroy(); charts.hist=null; }
-    const bins = 50;
-    function binData(arr){
-      if(!arr.length) return {xs:[], ys:[]};
-      const min = Math.min(...arr), max = Math.max(...arr);
-      const width = (max-min)/bins || 1;
-      const counts = new Array(bins).fill(0);
-      arr.forEach(v=>{
-        const idx = Math.min(bins-1, Math.max(0, Math.floor((v-min)/width)));
-        counts[idx]++;
-      });
-      const xs = counts.map((_,i)=> (min + i*width + width/2));
-      return { xs, ys:counts };
-    }
-    const b1 = binData(origCad);
-    const b2 = binData(cleanCad);
-
-    const ctx = document.getElementById('histChart');
-    charts.hist = new Chart(ctx, {
-      type:'bar',
-      data:{
-        labels: b1.xs.map(x=>x.toFixed(1)),
-        datasets:[
-          { label:'Original', data:b1.ys, borderWidth:1 },
-          { label:'Tras limpieza', data:b2.ys, borderWidth:1 }
-        ]
-      },
-      options:{
-        responsive:true,
-        maintainAspectRatio:false,
-        scales:{ x:{ title:{ display:true, text:'Cadencia' } }, y:{ title:{ display:true, text:'Frecuencia' } } },
-        plugins:{ legend:{ position:'top' } }
-      }
-    });
-  }
-
-  function renderCombo(t, std, alt, cad){
-    if(charts.combo){ charts.combo.destroy(); charts.combo=null; }
-    // Robust bounds for each axis
-    const limStd = robustLimits(std, {nonNegative:true, padFrac:0.25, fallback:[0,1]});
+  function renderAltCad(t, alt, cad){
+    if(charts.altCad){ charts.altCad.destroy(); charts.altCad=null; }
     const limAlt = robustLimits(alt, {nonNegative:false, padFrac:0.15, fallback:[0,10]});
     const limCad = robustLimits(cad, {nonNegative:true, padFrac:0.15, fallback:[0,120]});
-
-    const ctx = document.getElementById('comboChart');
-    charts.combo = new Chart(ctx, {
+    const ctx = document.getElementById('altCadChart');
+    charts.altCad = new Chart(ctx, {
       type:'line',
       data:{
         labels: t,
         datasets:[
-          { label:'Desv. estándar (ventana)', data: std, yAxisID:'yStd', borderWidth:1, spanGaps:true },
           { label:'Altitud (m)', data: alt, yAxisID:'yAlt', borderWidth:1, spanGaps:true },
           { label:'Cadencia', data: cad, yAxisID:'yCad', borderDash:[6,4], borderWidth:1, spanGaps:true }
         ]
@@ -208,12 +177,34 @@
         animation:false,
         interaction:{ mode:'index', intersect:false },
         scales:{
-          yStd:{ position:'left', min: limStd.min, max: limStd.max, title:{ display:true, text:'Desviación estándar' } },
-          yAlt:{ position:'right', min: limAlt.min, max: limAlt.max, title:{ display:true, text:'Altitud (m)' }, grid:{ drawOnChartArea:false } },
-          yCad:{ position:'right', offset:true, min: limCad.min, max: limCad.max, title:{ display:true, text:'Cadencia' }, grid:{ drawOnChartArea:false } },
+          yAlt:{ position:'left', min: limAlt.min, max: limAlt.max, title:{ display:true, text:'Altitud (m)' } },
+          yCad:{ position:'right', min: limCad.min, max: limCad.max, title:{ display:true, text:'Cadencia' }, grid:{ drawOnChartArea:false } },
           x:{ title:{ display:true, text:'Tiempo (s)' } }
         },
-        plugins:{ legend:{ position:'top' }, tooltip:{ callbacks:{ label: (ctx)=> `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed?.(3) ?? ctx.parsed.y}` } } }
+        plugins:{ legend:{ position:'top' } }
+      }
+    });
+  }
+
+  function renderTech(t, it){
+    if(charts.tech){ charts.tech.destroy(); charts.tech=null; }
+    const limIT = robustLimits(it, {nonNegative:true, padFrac=0.25, fallback:[0,1]});
+    const ctx = document.getElementById('techChart');
+    charts.tech = new Chart(ctx, {
+      type:'line',
+      data:{
+        labels: t,
+        datasets:[ { label:'Índice de tecnicidad', data: it, yAxisID:'yIT', borderWidth:1, spanGaps:true } ]
+      },
+      options:{
+        responsive:true,
+        maintainAspectRatio:false,
+        animation:false,
+        scales:{
+          yIT:{ position:'left', min: limIT.min, max: limIT.max, title:{ display:true, text:'Índice de tecnicidad' } },
+          x:{ title:{ display:true, text:'Tiempo (s)' } }
+        },
+        plugins:{ legend:{ display:false } }
       }
     });
   }
@@ -248,8 +239,6 @@
           if(!mapped.length){ log('No se encontraron columnas reconocibles (timestamp, cadence).'); return; }
           mapped.sort((a,b)=>a.sec-b.sec);
 
-          const cadRaw = mapped.map(r=>r.cadence).filter(v=>Number.isFinite(v));
-
           // Cleaning
           const n0 = mapped.length;
           let removed_zero=0, removed_high=0;
@@ -281,21 +270,29 @@
           const cad = series.map(r=>r.cadence);
           const alt = series.map(r=>r.altitude);
 
-          // Rolling STD
-          const std = rollingStd(cad, win);
+          // Rolling STD -> Índice de tecnicidad
+          const it = rollingStd(cad, win);
           const tAligned = t.slice(win-1);
           const altAligned = alt.slice(win-1);
           const cadAligned = cad.slice(win-1);
 
-          // Summary
+          // Global IT
+          const itAvg = it.length ? it.reduce((a,b)=>a+b,0)/it.length : NaN;
+          itValueEl.textContent = Number.isFinite(itAvg) ? itAvg.toFixed(4) : '—';
+          const cat = itCategory(itAvg);
+          itBadgeEl.textContent = cat.label;
+          itBadgeEl.className = 'it-badge ' + (cat.className || '');
+
+          // Summary tiles
           const duration_s = (series.at(-1).sec - series[0].sec);
-          const avg_std = std.length ? std.reduce((a,b)=>a+b,0)/std.length : NaN;
+          renderSummary({ duration_s, n_windows: it.length, pct_removed, removed_zero, removed_high, win, maxCad });
 
-          renderSummary({ duration_s, n_windows: std.length, avg_std, pct_removed, removed_zero, removed_high, win, maxCad });
-          renderHist(cadRaw, mapped.map(r=>r.cadence));
-          renderCombo(tAligned, std, altAligned, cadAligned);
+          // Charts
+          renderAltCad(tAligned, altAligned, cadAligned);
+          renderTech(tAligned, it);
 
-          results = tAligned.map((time_s, i)=>({ time_s, std_5s: std[i], altitude: altAligned[i], cadence: cadAligned[i] }));
+          // Export results
+          results = tAligned.map((time_s, i)=>({ time_s, indice_tecnicidad: it[i], altitude: altAligned[i], cadence: cadAligned[i] }));
           downloadBtn.disabled = !results.length;
 
         }catch(err){
@@ -309,6 +306,6 @@
   downloadBtn.addEventListener('click', ()=>{
     if(!results){ return; }
     const csv = makeCSV(results);
-    download('desviaciones_estandar_5s.csv', csv);
+    download('indice_tecnicidad_5s.csv', csv);
   });
 })();
